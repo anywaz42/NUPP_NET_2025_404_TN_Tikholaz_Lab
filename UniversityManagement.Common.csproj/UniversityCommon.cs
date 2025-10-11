@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Linq;
@@ -14,11 +14,10 @@ namespace University.Common
         public DateTime CreatedAt { get; set; }
         public bool IsActive { get; private set; }
 
-        // Конструктор
         public Entity()
         {
             Id = Guid.NewGuid();
-            CreatedAt = DateTime.Now;
+            CreatedAt = DateTime.UtcNow;
             IsActive = true;
         }
 
@@ -41,69 +40,62 @@ namespace University.Common
         {
             FirstName = firstName;
             LastName = lastName;
+            DateOfBirth = DateTime.UtcNow.AddYears(-20);
         }
 
-        // Абстрактний метод
-        public abstract string GetDetails();
+        public override string ToString()
+        {
+            return $"{FirstName} {LastName}";
+        }
     }
 
-    // Клас для персоналу. Наслідується від Person.
-    public abstract class Staff : Person
+    public class Staff : Person
     {
-        // Статичне поле
-        public static int TotalStaffCount = 0;
+        public string Position { get; set; }
 
+        public Staff(string firstName, string lastName, string position)
+            : base(firstName, lastName)
+        {
+            Position = position;
+        }
+    }
+
+    public class Professor : Person
+    {
         public string Department { get; set; }
-        public decimal Salary { get; set; }
+        public double Salary { get; set; }
 
-        // Конструктор
-        public Staff(string firstName, string lastName, string department, decimal salary)
+        public Professor(string firstName, string lastName, string department)
             : base(firstName, lastName)
         {
             Department = department;
-            Salary = salary;
-            // Використання статичного поля
-            TotalStaffCount++;
+            Salary = 0;
         }
 
-        // Метод
-        public void Promote(decimal raiseAmount)
+        // Статичний фабричний метод для генерації випадкового професора
+        public static Professor CreateNew()
         {
-            Salary += raiseAmount;
+            var rnd = new Random(Guid.NewGuid().GetHashCode());
+            string[] names = new[] { "Ivan", "Petro", "Olena", "Anna", "Mykola", "Sofia" };
+            string[] surnames = new[] { "Shevchenko", "Ivanov", "Kovalenko" };
+            var prof = new Professor(names[rnd.Next(names.Length)], surnames[rnd.Next(surnames.Length)], "Department")
+            {
+                Salary = rnd.Next(300, 1500)
+            };
+            return prof;
         }
     }
 
-    // Клас викладача. Наслідується від Staff.
-    public class Professor : Staff
-    {
-        public string ScientificDegree { get; set; }
-        public List<string> CoursesTaught { get; set; } = new List<string>();
-
-        // Конструктор
-        public Professor(string firstName, string lastName, string department, decimal salary, string degree)
-            : base(firstName, lastName, department, salary)
-        {
-            ScientificDegree = degree;
-        }
-
-        // Перевизначення методу з базового класу Person
-        public override string GetDetails()
-        {
-            return $"Професор: {LastName}, {FirstName}. Кафедра: {Department}. Ступінь: {ScientificDegree}.";
-        }
-    }
-
-    // Клас студента. Наслідується від Person.
     public class Student : Person
     {
         public int CourseYear { get; set; }
         public string Group { get; set; }
-        public double AverageGrade { get; private set; }
+        public double AverageGrade { get; set; }
 
         // Делегат
         public delegate void GradeAlertHandler(string studentName, double newGrade);
         // Подія
-        public event GradeAlertHandler LowGradeAlert;
+        public event GradeAlertHandler? LowGradeAlert;
 
         // Конструктор
         public Student(string firstName, string lastName, string group, int courseYear)
@@ -111,64 +103,67 @@ namespace University.Common
         {
             Group = group;
             CourseYear = courseYear;
+            AverageGrade = 0;
         }
 
-        // Метод, який використовує подію
-        public void SetNewAverageGrade(double grade)
+        public void UpdateGrade(double newGrade)
         {
-            AverageGrade = grade;
-            // Перевірка умови та виклик події
-            if (AverageGrade < 3.5)
+            AverageGrade = newGrade;
+            if (AverageGrade < 50)
             {
-                LowGradeAlert?.Invoke(GetDetails(), AverageGrade);
+                LowGradeAlert?.Invoke($"{FirstName} {LastName}", AverageGrade);
             }
         }
 
-        // Перевизначення методу з базового класу Person
-        public override string GetDetails()
+        // Статичний фабричний метод для генерації випадкового студента
+        public static Student CreateNew()
         {
-            return $"Студент: {LastName}, {FirstName}. Група: {Group}. Курс: {CourseYear}. Середній бал: {AverageGrade:F2}";
+            var rnd = new Random(Guid.NewGuid().GetHashCode());
+            string[] names = new[] { "Ivan", "Petro", "Olena", "Anna", "Mykola", "Sofia", "Dmytro", "Kateryna" };
+            string[] surnames = new[] { "Shevchenko", "Ivanov", "Kovalenko", "Tkachenko", "Bondarenko" };
+            string group = $"G{rnd.Next(1, 10)}{(char)('A' + rnd.Next(0, 3))}";
+            int courseYear = rnd.Next(1, 6);
+            var student = new Student(names[rnd.Next(names.Length)], surnames[rnd.Next(surnames.Length)], group, courseYear)
+            {
+                AverageGrade = Math.Round(rnd.NextDouble() * 100, 2)
+            };
+            return student;
         }
     }
 
-    // Клас курсу.
-    public class Course
+    public class Course : Entity
     {
-        // Статичний метод
-        public static string GetCourseCode(string courseName)
+        public string Title { get; set; }
+        public int Semester { get; set; }
+        public int Credits { get; set; }
+
+        public Course(string title, int semester)
         {
-            string acronym = new string(courseName.Split(' ').Where(s => !string.IsNullOrEmpty(s)).Select(s => s[0]).ToArray()).ToUpper();
-            return $"{acronym}-{new Random().Next(100, 999)}";
+            Title = title;
+            Semester = semester;
+            Credits = 3;
         }
 
-        public string Name { get; set; }
-        public string Code { get; private set; }
-        public int Credits { get; set; }
-        public Professor Instructor { get; set; }
-        public List<Student> EnrolledStudents { get; set; } = new List<Student>();
-
-        // Конструктор
-        public Course(string name, int credits)
+        // Статичний фабричний метод для генерації випадкового курсу
+        public static Course CreateNew()
         {
-            Name = name;
-            Credits = credits;
-            // Використання статичного методу
-            Code = GetCourseCode(name);
+            var rnd = new Random(Guid.NewGuid().GetHashCode());
+            string[] names = new[] { "Mathematics", "Physics", "Programming", "History", "Philosophy", "Economics" };
+            var course = new Course(names[rnd.Next(names.Length)], rnd.Next(1, 6))
+            {
+                Credits = rnd.Next(1, 7)
+            };
+            return course;
         }
     }
 
-
-    // Клас-контейнер для методів розширення має бути статичним
+    // Розширення для студентів
     public static class StudentExtensions
     {
-        // Метод розширення. Додає функціонал до класу Student.
-        public static string GetStudentInfo(this Student student)
-        {
-            return $"[EXT INFO] Студент: {student.LastName}, Курс {student.CourseYear}. ID: {student.Id}";
-        }
+        public static string FullName(this Student s) => $"{s.FirstName} {s.LastName}";
     }
 
-    //Інтерфейс загального CRUD сервісу
+    // Синхронний CRUD сервіс (оригінальний, не змінював)
     public interface ICrudService<T> where T : Entity
     {
         T Create(T entity);
@@ -176,13 +171,10 @@ namespace University.Common
         IEnumerable<T> ReadAll();
         T Update(T entity);
         void Delete(Guid id);
-
-        // Бонусні методи Load та Save для роботи з файлами
         void Save(string filePath);
         void Load(string filePath);
     }
 
-    // Конкретна реалізація CRUD сервісу
     public class CrudService<T> : ICrudService<T> where T : Entity
     {
         private readonly Dictionary<Guid, T> _storage = new Dictionary<Guid, T>();
@@ -208,18 +200,17 @@ namespace University.Common
         public T Update(T entity)
         {
             if (!_storage.ContainsKey(entity.Id))
-            {
-                throw new KeyNotFoundException($"Неможливо оновити. Об'єкт {typeof(T).Name} з ID {entity.Id} не знайдено.");
-            }
+                throw new KeyNotFoundException($"Об'єкт {typeof(T).Name} з ID {entity.Id} не знайдено.");
+
             _storage[entity.Id] = entity;
-            Console.WriteLine($"[CRUD] Оновлено {typeof(T).Name} з ID: {entity.Id}");
             return entity;
         }
 
         public void Delete(Guid id)
         {
-            if (_storage.Remove(id))
+            if (_storage.ContainsKey(id))
             {
+                _storage.Remove(id);
                 Console.WriteLine($"[CRUD] Видалено {typeof(T).Name} з ID: {id}");
                 return;
             }
@@ -239,20 +230,19 @@ namespace University.Common
         // метод Load (використовує JSON десеріалізацію)
         public void Load(string filePath)
         {
-            if (!File.Exists(filePath))
-            {
-                Console.WriteLine($"[CRUD] Файл {filePath} не знайдено.");
-                return;
-            }
+            if (!File.Exists(filePath)) return;
 
             Console.WriteLine($"[CRUD] Завантаження даних {typeof(T).Name} з файлу: {filePath}...");
             string jsonString = File.ReadAllText(filePath);
             var loadedList = JsonSerializer.Deserialize<List<T>>(jsonString);
 
             _storage.Clear();
-            foreach (var entity in loadedList)
+            if (loadedList != null)
             {
-                _storage.Add(entity.Id, entity);
+                foreach (var entity in loadedList)
+                {
+                    _storage.Add(entity.Id, entity);
+                }
             }
             Console.WriteLine($"[CRUD] Успішно завантажено {_storage.Count} об'єктів.");
         }
