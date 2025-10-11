@@ -1,83 +1,97 @@
-﻿using System;
+using System;
 using System.Linq;
-// Коментар: Обов'язкове підключення простору імен, де знаходяться всі класи
+using System.Threading;
+using System.Threading.Tasks;
+using System.Collections.Generic;
 using University.Common;
 
 public class Program
 {
-    // Коментар: Метод-обробник події LowGradeAlert
-    public static void OnLowGradeAlert(string studentName, double newGrade)
-    {
-        Console.ForegroundColor = ConsoleColor.Red;
-        Console.WriteLine($"!!! СПОВІЩЕННЯ !!! Студент {studentName} має низький середній бал: {newGrade:F2}");
-        Console.ResetColor();
-    }
-
-    public static void Main(string[] args)
+    // Головний асинхронний метод програми
+    public static async Task Main(string[] args)
     {
         Console.OutputEncoding = System.Text.Encoding.UTF8;
-        Console.WriteLine("    СИСТЕМА УПРАВЛІННЯ УНІВЕРСИТЕТОМ    ");
+        Console.InputEncoding = System.Text.Encoding.UTF8;
 
-        // 1. Ініціалізація та Create (C)
-        // Використовуємо клас CrudService<T> з простору імен University.Common
-        var studentService = new CrudService<Student>();
 
-        var student1 = new Student("Іван", "Коваленко", "КН-31", 3);
-        var student2 = new Student("Олена", "Петрова", "ПМ-22", 2);
+        // Шлях до файлу, де зберігатимуться дані у форматі JSON
+        string filePath = "students_async.json";
+        var service = new CrudServiceAsync<Student>(filePath);
 
-        // Підписка на Подію (Event)
-        student2.LowGradeAlert += OnLowGradeAlert;
+        int totalToCreate = 100; // Кількість студентів, яких потрібно створити
 
-        studentService.Create(student1);
-        studentService.Create(student2);
+        // 🔸 Примітиви синхронізації для демонстрації роботи з потоками
+        object consoleLock = new object(); // Використовується для блокування доступу до консолі (щоб уникнути "перемішаного" тексту)
+        var semaphore = new SemaphoreSlim(5); // Дозволяє максимум 5 одночасних операцій (імітація обмеження доступу до файлу)
+        var are = new AutoResetEvent(false); // Сигналізує про певну подію (наприклад, коли створено певну кількість студентів)
 
-        // 2. Демонстрація Статичних членів та Наслідування
-        Console.WriteLine("\n--- 2. Статичні Члени та Наслідування ---");
+        // 🔸 Використовуємо Parallel.For для паралельного створення студентів і додавання їх у сервіс
+        Console.WriteLine("Починаємо паралельне створення студентів...");
+        var tasks = new List<Task>();
 
-        // Створення об'єкта Professor для ініціалізації Staff.TotalStaffCount
-        var prof = new Professor("Сергій", "Іванов", "Кібербезпеки", 30000m, "К.т.н.");
-        // Використання статичного поля з класу Staff
-        Console.WriteLine($"Загальна кількість співробітників (Staff.TotalStaffCount): {Staff.TotalStaffCount}");
-
-        // Використання статичного методу з класу Course
-        Console.WriteLine($"Код курсу 'Бази даних': {Course.GetCourseCode("Бази даних")}");
-
-        // 3. Read All (R) та Метод Розширення
-        Console.WriteLine("\n--- 3. Read All та Метод Розширення ---");
-        foreach (var s in studentService.ReadAll())
+        // Parallel.For створює окремі потоки виконання
+        Parallel.For(0, totalToCreate, new ParallelOptions { MaxDegreeOfParallelism = Environment.ProcessorCount }, i =>
         {
-            // Виклик методу GetDetails() (перевизначення з Person)
-            Console.WriteLine($"- Деталі: {s.GetDetails()}");
-            // Використання методу розширення
-            Console.WriteLine($"- {s.GetStudentInfo()}");
+            // Для кожної ітерації створюємо асинхронне завдання
+            tasks.Add(Task.Run(async () =>
+            {
+                await semaphore.WaitAsync(); // Очікуємо дозвіл на виконання (максимум 5 одночасно)
+                try
+                {
+                    // Створюємо нового студента з випадковими даними
+                    var s = Student.CreateNew();
+
+                    // Генеруємо випадкову оцінку (0–100)
+                    s.AverageGrade = Math.Round((new Random(Guid.NewGuid().GetHashCode()).NextDouble() * 100), 2);
+
+                    // Додаємо студента у CRUD-сервіс
+                    await service.CreateAsync(s);
+
+                    // Кожні 100 створених студентів виводимо повідомлення і подаємо сигнал AutoResetEvent
+                    if (i % 100 == 0)
+                    {
+                        lock (consoleLock)
+                        {
+                            Console.WriteLine($"Створено {i} студентів...");
+                        }
+                        are.Set(); // Подати сигнал, що подія відбулась
+                    }
+                }
+                finally
+                {
+                    semaphore.Release(); // Звільняємо "місце" у семафорі
+                }
+            }));
+        });
+
+        // Очікуємо завершення всіх асинхронних завдань
+        await Task.WhenAll(tasks);
+
+        // Очікуємо сигнал від AutoResetEvent (або таймаут 100 мс)
+        are.WaitOne(100);
+
+        // 🔸 Обчислення статистики для полів AverageGrade та CourseYear
+        var all = (await service.ReadAllAsync()).ToList();
+
+        var minGrade = all.Min(s => s.AverageGrade);
+        var maxGrade = all.Max(s => s.AverageGrade);
+        var avgGrade = all.Average(s => s.AverageGrade);
+
+        var minCourse = all.Min(s => s.CourseYear);
+        var maxCourse = all.Max(s => s.CourseYear);
+        var avgCourse = all.Average(s => s.CourseYear);
+
+        // 🔸 Виведення результатів у консоль (під lock для безпечного доступу)
+        lock (consoleLock)
+        {
+            Console.WriteLine($"Створено студентів: {all.Count}");
+            Console.WriteLine($"Середній бал -> Мін: {minGrade:F2}, Макс: {maxGrade:F2}, Середнє: {avgGrade:F2}");
+            Console.WriteLine($"Курс -> Мін: {minCourse}, Макс: {maxCourse}, Середнє: {avgCourse:F2}");
         }
 
-        // 4. Update (U) та Демонстрація Події (Event/Delegate)
-        Console.WriteLine("\n--- 4. Update та Подія ---");
+        // 🔸 Асинхронно зберігаємо всю колекцію у файл
+        await service.SaveAsync();
 
-        // Оновлення об'єкта
-        student1.CourseYear = 4;
-        studentService.Update(student1);
-
-        // Виклик методу, що ініціює подію.
-        student2.SetNewAverageGrade(3.2); // Спрацює обробник OnLowGradeAlert
-
-        // 5. Демонстрація Бонусних методів (Save/Load)
-        Console.WriteLine("\n--- 5. Save/Load (Бонус) ---");
-        string filePath = "students_data.json";
-        studentService.Save(filePath);
-
-        // Створюємо новий сервіс, щоб довести, що дані завантажуються з файлу
-        var loadedStudentService = new CrudService<Student>();
-        loadedStudentService.Load(filePath);
-        Console.WriteLine($"Перевірка: Студентів після завантаження: {loadedStudentService.ReadAll().Count()}");
-
-        // 6. Delete (D)
-        Console.WriteLine("\n--- 6. Delete ---");
-        // Беремо ID першого завантаженого студента для видалення
-        Guid idToDelete = loadedStudentService.ReadAll().First().Id;
-        loadedStudentService.Delete(idToDelete);
-
-        Console.WriteLine($"Студентів після видалення: {loadedStudentService.ReadAll().Count()}");
+        Console.WriteLine("Роботу завершено. Дані збережено у файл.");
     }
 }
